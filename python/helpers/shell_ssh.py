@@ -1,12 +1,12 @@
 import paramiko
 import time
 import re
+import threading
 from typing import Optional, Tuple
 
 class SSHInteractiveSession:
 
     end_comment = "# @@==>> SSHInteractiveSession End-of-Command  <<==@@"
-
     ps1_label = "SSHInteractiveSession CLI>"
     
     def __init__(self, hostname: str, port: int, username: str, password: str):
@@ -17,21 +17,19 @@ class SSHInteractiveSession:
         self.client = paramiko.SSHClient()
         self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         self.shell = None
-        self.full_output = b''
+        self.full_output = b""  # Still store as bytes
+        self.running_command_pid = None
+        self.output_thread = None
+        self.output_lock = threading.Lock()
+        self.command_finished = False
 
     def connect(self):
-        # try 3 times with wait and then except
         errors = 0
         while True:
             try:
                 self.client.connect(self.hostname, self.port, self.username, self.password)
-                self.shell = self.client.invoke_shell(width=160,height=48)
-                # self.shell.send(f'PS1="{SSHInteractiveSession.ps1_label}"'.encode())
+                self.shell = self.client.invoke_shell(width=160, height=48)
                 return
-                # while True: # wait for end of initial output
-                #     full, part = self.read_output()
-                #     if full and not part: return
-                #     time.sleep(0.1)
             except Exception as e:
                 errors += 1
                 if errors < 3:
@@ -50,40 +48,72 @@ class SSHInteractiveSession:
         if not self.shell:
             raise Exception("Shell not connected")
         self.full_output = b""
-        self.shell.send((command + " \\\n" +SSHInteractiveSession.end_comment + "\n").encode())
+        self.command_finished = False
+        
+        # Extract the process ID (PID) of the command if possible
+        self.shell.send(f"{command} & echo $! \n".encode())
+        time.sleep(0.1)
+        self.running_command_pid = self.extract_pid()
+        
+        # Start a background thread to capture output
+        self.output_thread = threading.Thread(target=self._capture_output)
+        self.output_thread.daemon = True  # Daemon thread will exit when the main program exits
+        self.output_thread.start()
 
-    def read_output(self) -> Tuple[str, str]:
-        if not self.shell:
-            raise Exception("Shell not connected")
+    def extract_pid(self):
+        time.sleep(0.5)  # Wait for the PID to appear
+        output = self.get_latest_output()
+        pid = re.search(r'\b\d+\b', output)
+        if pid:
+            return pid.group()
+        return None
 
-        partial_output = b''
-        while self.shell.recv_ready():
-            data = self.shell.recv(1024)
-            partial_output += data
-            self.full_output += data
+    def stop_command(self):
+        if self.running_command_pid:
+            self.shell.send(f"kill {self.running_command_pid}\n".encode())
+            time.sleep(0.1)
+            self.running_command_pid = None
+
+    def is_process_running(self):
+        if not self.running_command_pid:
+            return False
+        self.shell.send(f"ps -p {self.running_command_pid}\n".encode())
+        time.sleep(0.1)
+        output = self.get_latest_output()
+        return self.running_command_pid in output
+
+    def _capture_output(self):
+        """Continuously capture output in the background and detect when the command finishes."""
+        while True:
+            if self.shell and self.shell.recv_ready():
+                with self.output_lock:
+                    partial_output = self.shell.recv(1024)
+                    self.full_output += partial_output  # Keep as bytes
+
+                    # Check if the command has finished by detecting the end_comment
+                    if SSHInteractiveSession.end_comment.encode() in self.full_output:
+                        self.command_finished = True
+                        break  # Exit the loop as the command has completed
+
+            if self.command_finished:
+                break
             time.sleep(0.1)  # Prevent busy waiting
 
-        # Decode once at the end
-        decoded_partial_output = partial_output.decode('utf-8', errors='replace')
-        decoded_full_output = self.full_output.decode('utf-8', errors='replace')
-        
-        decoded_partial_output = self.clean_string(decoded_partial_output)
-        decoded_full_output = self.clean_string(decoded_full_output)
-
-        # Split output at end_comment
-        if SSHInteractiveSession.end_comment in decoded_full_output:
-            decoded_full_output = decoded_full_output.split(SSHInteractiveSession.end_comment)[-1].lstrip("\r\n")
-            decoded_partial_output = decoded_partial_output.split(SSHInteractiveSession.end_comment)[-1].lstrip("\r\n")
-        
-        return decoded_full_output, decoded_partial_output
-
+    def get_latest_output(self):
+        """Return the captured output so far."""
+        with self.output_lock:
+            decoded_output = self.full_output.decode('utf-8', errors='replace')  # Decode bytes to string
+            cleaned_output = self.clean_string(decoded_output)
+            # Remove the end_comment if it exists
+            if SSHInteractiveSession.end_comment in cleaned_output:
+                cleaned_output = cleaned_output.split(SSHInteractiveSession.end_comment)[0].strip()
+            return cleaned_output
 
     def clean_string(self, input_string):
-        # Remove ANSI escape codes
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         cleaned = ansi_escape.sub('', input_string)
-        
-        # Replace '\r\n' with '\n'
         cleaned = cleaned.replace('\r\n', '\n')
-        
         return cleaned
+
+    def has_command_finished(self):
+        return self.command_finished

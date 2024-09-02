@@ -138,6 +138,9 @@ IMPORTANT!: Always check your code for any placeholder IDs or demo data that nee
 Do not use in combination with other tools except for thoughts. Wait for response before using other tools.
 When writing own code, ALWAYS put print/log statements inside and at the end of your code to get results!
 - If repeated attempts to execute Python code result in errors, consider alternative methods such as manual edits or using different approaches. Ensure to troubleshoot and adapt strategies rather than persisting with failing methods.
+- You can check if a long-running or background process is still active using the "status" runtime.
+- If you need to stop a running process (e.g., an infinite loop or a long-running script), use the "stop" runtime.
+
 **Example usages:**
 1. Execute python code
 ~~~json
@@ -193,6 +196,32 @@ When writing own code, ALWAYS put print/log statements inside and at the end of 
     "tool_args": {
         "runtime": "terminal",
         "code": "Y",
+    }
+}
+~~~
+
+3. Check if a process is still running
+~~~json
+{
+    "thoughts": [
+        "I need to check if the process is still active...",
+    ],
+    "tool_name": "code_execution_tool",
+    "tool_args": {
+        "runtime": "status"
+    }
+}
+~~~
+
+4. Stop a running process
+~~~json
+{
+    "thoughts": [
+        "The process is running for too long; I need to stop it...",
+    ],
+    "tool_name": "code_execution_tool",
+    "tool_args": {
+        "runtime": "stop"
     }
 }
 ~~~

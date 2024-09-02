@@ -10,7 +10,7 @@ import python.helpers.timed_input as timed_input
 
 input_lock = threading.Lock()
 os.chdir(files.get_abs_path("./work_dir")) #change CWD to work_dir
-
+# now start a website with tailwind css saying i will be back, use tailwind css to stylise the website and be creative
 
 def initialize():
     
@@ -50,9 +50,9 @@ def initialize():
         # max_tool_response_length = 3000,
         # response_timeout_seconds = 60,
         code_exec_docker_enabled = True,
-        # code_exec_docker_name = "agent-zero-exe",
-        # code_exec_docker_image = "docker-agent-zero-exe:latest",
-        # code_exec_docker_ports = { "22/tcp": 50022 }
+        code_exec_docker_name = "zero",
+        code_exec_docker_image = "zero",
+        code_exec_docker_ports = { "22/tcp": 50022, "5000/tcp": 5000, "3000/tcp": 3000 },
         # code_exec_docker_volumes = { files.get_abs_path("work_dir"): {"bind": "/root", "mode": "rw"} }
         code_exec_ssh_enabled = True,
         # code_exec_ssh_addr = "localhost",
